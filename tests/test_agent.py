@@ -123,3 +123,44 @@ def test_ask_without_key_explains_setup(monkeypatch, capsys, tmp_path):
 
     assert ask.main(["what sold best?"]) == 2
     assert "ANTHROPIC_API_KEY" in capsys.readouterr().err
+
+
+def test_request_shape_with_real_sdk(store):
+    """Runs the loop through the actual anthropic client against a mocked HTTP endpoint."""
+    anthropic = pytest.importorskip("anthropic")
+    httpx2 = pytest.importorskip("httpx2")
+
+    def message(id, stop_reason, content):
+        return {"id": id, "type": "message", "role": "assistant", "model": "claude-opus-5-5", "content": content,
+                "stop_reason": stop_reason, "stop_sequence": None, "usage": {"input_tokens": 1, "output_tokens": 1}}
+
+    replies = [
+        message("msg_1", "tool_use", [
+            {"type": "text", "text": "Checking."},
+            {"type": "tool_use", "id": "toolu_1", "name": "top_customers", "input": {"n": 1}},
+        ]),
+        message("msg_2", "end_turn", [{"type": "text", "text": "Alice Ng."}]),
+    ]
+    sent = []
+
+    def handler(request):
+        sent.append((request.headers, json.loads(request.content)))
+        return httpx2.Response(200, json=replies[len(sent) - 1])
+
+    client = anthropic.Anthropic(
+        api_key="test", base_url="http://api.invalid", max_retries=0,
+        http_client=anthropic.DefaultHttpxClient(transport=httpx2.MockTransport(handler)),
+    )
+    answer = run_agent("Who is my best customer?", store, client)
+
+    assert answer.text == "Alice Ng."
+    headers, first = sent[0]
+    assert headers["anthropic-beta"] == "server-side-fallback-2026-07-01"
+    assert first["fallbacks"] == "default"
+    assert first["output_config"] == {"effort": "medium"}
+    _, second = sent[1]
+    assert [m["role"] for m in second["messages"]] == ["user", "assistant", "user"]
+    assert [c["type"] for c in second["messages"][1]["content"]] == ["text", "tool_use"]
+    result = second["messages"][2]["content"][0]
+    assert result["tool_use_id"] == "toolu_1"
+    assert json.loads(result["content"])["rows"][0]["name"] == "Alice Ng"

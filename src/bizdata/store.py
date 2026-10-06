@@ -3,7 +3,7 @@ import sqlite3
 import time
 from pathlib import Path
 
-from . import schema, sqlguard
+from . import reports, schema, sqlguard
 from .audit import AuditLog, audited
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -141,6 +141,29 @@ class Store:
         finally:
             con.close()
         return {"dialect": "SQLite", "tables": tables, "conventions": schema.CONVENTIONS}
+
+    def _report(self, fn, *args):
+        con = self.connect(guarded=False)
+        try:
+            return fn(con, *args)
+        finally:
+            con.close()
+
+    @audited
+    def sales_summary(self, start: str | None = None, end: str | None = None, group_by: str = "month") -> dict:
+        return self._report(reports.sales_summary, start, end, group_by)
+
+    @audited
+    def top_customers(self, n: int = 10, start: str | None = None, end: str | None = None) -> dict:
+        return self._report(reports.top_customers, n, start, end)
+
+    @audited
+    def refund_rate(self, by: str = "category", start: str | None = None, end: str | None = None) -> dict:
+        return self._report(reports.refund_rate, by, start, end)
+
+    @audited
+    def inventory_alerts(self, min_days_of_cover: int = 14) -> dict:
+        return self._report(reports.inventory_alerts, min_days_of_cover)
 
     def schema_markdown(self) -> str:
         info = self.describe_schema()

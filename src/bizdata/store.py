@@ -165,6 +165,13 @@ class Store:
     def inventory_alerts(self, min_days_of_cover: int = 14) -> dict:
         return self._report(reports.inventory_alerts, min_days_of_cover)
 
+    def order_date_range(self) -> tuple[str | None, str | None]:
+        con = self.connect(guarded=False)
+        try:
+            return con.execute("SELECT date(MIN(ordered_at)), date(MAX(ordered_at)) FROM orders").fetchone()
+        finally:
+            con.close()
+
     def schema_markdown(self) -> str:
         info = self.describe_schema()
         lines = [f"# Database schema ({info['dialect']})", ""]

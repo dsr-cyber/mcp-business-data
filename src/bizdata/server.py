@@ -1,5 +1,6 @@
 import argparse
 import functools
+import inspect
 from typing import Any, Literal
 
 import anyio
@@ -22,7 +23,11 @@ def build_server(store: Store, **settings) -> FastMCP:
         # SQLite is blocking; keep it off the event loop so one slow query doesn't stall the session.
         return await anyio.to_thread.run_sync(functools.partial(method, **kwargs))
 
-    @mcp.tool()
+    def tool(fn):
+        # FastMCP sends docstrings as-is; dedent them so clients don't get the indentation.
+        return mcp.tool(description=inspect.cleandoc(fn.__doc__))(fn)
+
+    @tool
     async def run_sql(query: str) -> dict[str, Any]:
         """Run one read-only SQLite SELECT (or WITH ... SELECT) and return columns, rows and a truncated flag.
 
@@ -32,7 +37,7 @@ def build_server(store: Store, **settings) -> FastMCP:
         """
         return await call(store.run_sql, query=query)
 
-    @mcp.tool()
+    @tool
     async def describe_schema() -> dict[str, Any]:
         """List every table with its columns, row counts, foreign keys, and notes on how to use them.
 
@@ -40,7 +45,7 @@ def build_server(store: Store, **settings) -> FastMCP:
         """
         return await call(store.describe_schema)
 
-    @mcp.tool()
+    @tool
     async def sales_summary(
         start: str | None = None,
         end: str | None = None,
@@ -54,7 +59,7 @@ def build_server(store: Store, **settings) -> FastMCP:
         """
         return await call(store.sales_summary, start=start, end=end, group_by=group_by)
 
-    @mcp.tool()
+    @tool
     async def top_customers(n: int = 10, start: str | None = None, end: str | None = None) -> dict[str, Any]:
         """The n customers with the highest net revenue (after refunds) in an optional date range.
 
@@ -62,7 +67,7 @@ def build_server(store: Store, **settings) -> FastMCP:
         """
         return await call(store.top_customers, n=n, start=start, end=end)
 
-    @mcp.tool()
+    @tool
     async def refund_rate(
         by: Literal["category", "product", "month", "channel"] = "category",
         start: str | None = None,
@@ -75,7 +80,7 @@ def build_server(store: Store, **settings) -> FastMCP:
         """
         return await call(store.refund_rate, by=by, start=start, end=end)
 
-    @mcp.tool()
+    @tool
     async def inventory_alerts(min_days_of_cover: int = 14) -> dict[str, Any]:
         """Active products that are out of stock, at or below their reorder point, or running low.
 
